@@ -1,0 +1,121 @@
+---
+title: "Mapping SNPs to genes"
+author: "Ivy Tran"
+date: "2025-01-08"
+output: html_document
+---
+
+```{r}
+# load packages
+library(dplyr)
+packageVersion('dplyr')
+```
+
+```{r}
+# directory
+gene.set.dir = '...'
+```
+
+```{r}
+# path to range.report file: 15 kb flanking
+gene.set.path <- file.path(gene.set.dir,'chrs_1_22_shared_SNPs_419_ind_glist_hg38_15kb.range.report')
+gene.set.path
+```
+
+```{r}
+# read file
+gene.data <- read.csv(gene.set.path, header = FALSE, sep = '|')
+gene.data <- data.frame(line = gene.data[apply(gene.data['V1'], 1, nchar) > 23, ])
+head(gene.data)
+```
+
+```{r}
+sub4 <- function(x){
+  substr(x, 1, 1)
+}
+```
+
+```{r}
+gene.data['s1'] <- apply(gene.data['line'], 1, sub4)
+gene.data['row.index'] <- seq.int(nrow(gene.data))
+head(gene.data)
+```
+
+```{r}
+gene.row <- data.frame(gene.def = gene.data[gene.data['s1'] != " ", 'line'], 
+                       start.row.indx = which(gene.data['s1'] != " "))
+head(gene.row)
+```
+
+```{r}
+get.gene.region <- function(line){
+  line.head <- sub("[(].*", "", line)
+  splits = strsplit(line.head, "--")[[1]] #split line by spaces
+  c(trimws(splits[1]), trimws(splits[2]))
+}
+```
+
+```{r}
+gene.region <- apply(gene.row['gene.def'], 1, get.gene.region)
+gene.row$gene <- gene.region[1, ]
+gene.row$region <- gene.region[2, ]
+```
+
+```{r}
+gene.row$end.row.indx <- append(gene.row$start.row.indx[2:nrow(gene.row)] - 1, nrow(gene.data))
+gene.row <- gene.row[, c('gene','region','start.row.indx','end.row.indx')]
+```
+
+```{r}
+merged <- gene.data %>% full_join(gene.row, by = join_by(between(row.index, start.row.indx, end.row.indx)))
+merged <- merged[-gene.row[, 'start.row.indx'], c('line', 'gene', 'region')]
+head(merged)
+```
+
+```{r}
+# number of genes
+n_distinct(merged$gene)
+n_distinct(gene.row$gene)
+```
+
+```{r}
+get.chr.details <- function(line){
+  splits <- strsplit(line, " +")[[1]]
+  remains <- strsplit(splits[3], "\t")[[1]]
+  c(splits[2], remains[1], remains[2], remains[3])
+}
+```
+
+```{r}
+chr.details <- apply(merged, 1, get.chr.details)
+```
+
+```{r}
+merged$dist <- chr.details[1, ]
+merged$chr <- chr.details[2, ]
+merged$snp <- chr.details[3, ]
+merged$bp <- chr.details[4, ]
+```
+
+```{r}
+merged <- merged[, c('gene','region','dist','chr','snp', 'bp')]
+head(merged)
+```
+
+```{r}
+# reformat into text
+gene.text <- merged %>% 
+                group_by(gene) %>% 
+                summarise(snps = paste0(snp, collapse = "\n"))
+
+head(gene.text)
+```
+
+```{r}
+gene.text$full.text <- paste(gene.text$gene, '\n', gene.text$snps, '\nEND\n', sep="")
+head(gene.text)
+```
+
+```{r}
+write.table(gene.text$full.text, file.path(gene.set.dir, 'shared_SNPs_gene_set_hg38.txt'), row.names = FALSE, col.names = FALSE, quote = FALSE)
+```

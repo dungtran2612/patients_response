@@ -1,0 +1,337 @@
+# Cox regression stratified by number of ICS prescription (low vs high)
+
+```{r}
+#Load library
+library(dplyr)
+packageVersion('dplyr')
+library(survival)
+packageVersion('survival')
+library(forcats)
+packageVersion('forcats')
+library(readxl)
+packageVersion('readxl')
+library(stringr)
+packageVersion('stringr')
+library(ggplot2)
+packageVersion('ggplot2')
+library(tidyr)
+packageVersion('tidyr')
+```
+
+```{r}
+#load data
+data.dir = '...'
+first.ocs <- read.csv(file.path(data.dir, 'Cox_model_1st_OCS_aft_plasma_pheno_mets.csv'))
+dim(first.ocs)
+length(unique(first.ocs$Subject_Id)) # 447 selected subjects
+```
+
+### Classification of number of ICS prescription
+```{r}
+#classify two groups of ICS prescription (low vs high) based on median value of 9
+summary(first.ocs$ICS_total_number_of_prescriptions_5y_bef_plasma_collect) # median is 9
+# create a new column for group of ICS prescription
+first.ocs$ICS_total_number_of_prescriptions_5Y_bef_plasma_half <- NA
+first.ocs$ICS_total_number_of_prescriptions_5Y_bef_plasma_half <- ifelse(first.ocs$ICS_total_number_of_prescriptions_5y_bef_plasma_collect <= 9, 'Low', 'High')
+table(first.ocs$ICS_total_number_of_prescriptions_5Y_bef_plasma_half)
+first.ocs <- first.ocs %>% relocate('ICS_total_number_of_prescriptions_5Y_bef_plasma_half',
+                         .after = ICS_total_number_of_prescriptions_5y_bef_plasma_collect) #relocate column
+```
+
+### Cox regression model for low number of ICS prescription
+```{r}
+# Cox regression: 227 subjects
+first.half.ics <- first.ocs %>% filter(ICS_total_number_of_prescriptions_5Y_bef_plasma_half == 'Low')
+dim(first.half.ics)
+summary(first.half.ics$ICS_total_number_of_prescriptions_5y_bef_plasma_collect)
+# create result
+result.array.ics.half.1 <- data.frame(matrix(ncol=6, nrow=0))
+colnames(result.array.ics.half.1) <- c('i','met','p.met.half.1','hr.met.half.1',
+                                      'lower.95.hr.met.half.1','upper.95.hr.met.half.1')
+
+which(colnames(first.half.ics) == 'M35') #1st met column
+
+# run loop of cox model
+for (i in 30:ncol(first.half.ics)) {   #loop through each column             
+    chem.name <- colnames(first.half.ics)[i]   #name of chemical i
+    coxph.first.half.ics <- coxph(Surv(Days_Diff_1st_OCS_aft_plasma_collect_date,event.all) ~ first.half.ics[,i] + 
+                                  Age_at_plasma_collection_date + 
+                                  Gender_Male + Race_White + Bronchiectasis_Existence_Yes +
+                                  Chronic_Bronchitis_Existence_Yes +
+                                  BMI_median_closest_measure_date_to_collect_date +
+                                  Closest_plasma_collect_date_former_smoker +
+                                  Closest_plasma_collect_date_never_smoker + 
+                                  OCS_bef_plasma_collect_date + 
+                                  ICS_Dose_Classification_5Y_bef_Median_1_5 + 
+                                  ICS_Dose_Classification_5Y_bef_Median_2, 
+                                  data=first.half.ics) #fitmodel
+   
+    model.coefs.first.half.ics <- summary(coxph.first.half.ics)$coefficients # get model coefficient and p-value
+    confi.int.first.half.ics <- summary(coxph.first.half.ics)$conf.int # get confidence interval of model
+    
+    if (nrow(model.coefs.first.half.ics) > 0) {
+          p.met.half.1 <- model.coefs.first.half.ics[1,5]
+          hr.met.half.1 <- model.coefs.first.half.ics[1,2] 
+          
+          lower.95.hr.met.half.1 <- confi.int.first.half.ics[1,3] # get lower confidence interval for metabolite 
+          upper.95.hr.met.half.1 <- confi.int.first.half.ics[1,4] # get upper confidence interval for metabolite
+          
+
+      result.array.ics.half.1[nrow(result.array.ics.half.1) + 1,] <- c(i,chem.name, p.met.half.1, hr.met.half.1,
+                                                                     lower.95.hr.met.half.1,upper.95.hr.met.half.1)
+    } else {
+      result.array.ics.half.1[nrow(result.array.ics.half.1) + 1,] <- c(i,chem.name,NA,NA,NA,NA)
+    }
+}
+```
+
+```{r}
+# change character value to numeric
+result.array.ics.half.1.cols <- c('p.met.half.1','hr.met.half.1',
+                                  'lower.95.hr.met.half.1','upper.95.hr.met.half.1')
+
+for (col in result.array.ics.half.1.cols){
+    result.array.ics.half.1[[col]] <- as.numeric(result.array.ics.half.1[[col]])
+}
+result.array.ics.half.1 %>% filter(p.met.half.1 < 0.05/117) %>% arrange(p.met.half.1)
+```
+
+```{r}
+# merge with metabolites info
+# load metabolite info from Qingwen's QC
+mets.dir = "..."
+
+mets.info <- read_excel(file.path(mets.dir,"DATA TABLES.XLSX"), 
+                        sheet = "Chemical Annotation")
+# add one more column: met_id
+mets.info$met <- paste('M', mets.info$CHEM_ID, sep = '')
+mets.info <- mets.info %>% select(COMP_ID, SUPER_PATHWAY, SUB_PATHWAY, CHEMICAL_NAME,
+                                  HMDB, KEGG, PUBCHEM, SMILES, INCHIKEY, met)
+# merge to have met name
+result.array.ics.half.1.info <- result.array.ics.half.1 %>% left_join(mets.info, by = 'met')
+```
+
+### Cox regression model for high number of ICS prescription
+```{r}
+second.half.ics <- first.ocs %>% filter(ICS_total_number_of_prescriptions_5Y_bef_plasma_half == 'High')
+summary(second.half.ics$ICS_total_number_of_prescriptions_5y_bef_plasma_collect)
+# create result
+result.array.ics.half.2 <- data.frame(matrix(ncol=6, nrow=0))
+colnames(result.array.ics.half.2) <- c('i','met','p.met.half.2','hr.met.half.2',
+                                      'lower.95.hr.met.half.2','upper.95.hr.met.half.2')
+
+which(colnames(second.half.ics) == 'M35')
+
+# run loop of cox model
+for (i in 30:ncol(second.half.ics)) {   #loop through each column             
+    chem.name <- colnames(second.half.ics)[i]   #name of chemical i
+    coxph.second.half.ics <- coxph(Surv(Days_Diff_1st_OCS_aft_plasma_collect_date,event.all) ~ second.half.ics[,i] + 
+                                   Age_at_plasma_collection_date + 
+                                   Gender_Male + Race_White + Bronchiectasis_Existence_Yes +
+                                   Chronic_Bronchitis_Existence_Yes + 
+                                   BMI_median_closest_measure_date_to_collect_date +
+                                   Closest_plasma_collect_date_former_smoker +
+                                   Closest_plasma_collect_date_never_smoker + 
+                                   OCS_bef_plasma_collect_date + 
+                                   ICS_Dose_Classification_5Y_bef_Median_1_5 + 
+                                   ICS_Dose_Classification_5Y_bef_Median_2, data=second.half.ics) #fitmodel
+   
+    model.coefs.second.half.ics <- summary(coxph.second.half.ics)$coefficients # get model coefficient and p-value
+    confi.int.second.half.ics <- summary(coxph.second.half.ics)$conf.int # get confidence interval of model
+    
+    if (nrow(model.coefs.second.half.ics) > 0) {
+          p.met.half.2 <- model.coefs.second.half.ics[1,5]
+          hr.met.half.2 <- model.coefs.second.half.ics[1,2]
+        
+          lower.95.hr.met.half.2 <- confi.int.second.half.ics[1,3] # get lower confidence interval for metabolite 
+          upper.95.hr.met.half.2 <- confi.int.second.half.ics[1,4] # get upper confidence interval for metabolite
+        
+      result.array.ics.half.2[nrow(result.array.ics.half.2) + 1,] <- c(i,chem.name, 
+                                                                       p.met.half.2, 
+                                                                       hr.met.half.2,
+                                                                       lower.95.hr.met.half.2,
+                                                                       upper.95.hr.met.half.2)
+    } else {
+      result.array.ics.half.2[nrow(result.array.ics.half.2) + 1,] <- c(i,chem.name,NA,NA,NA,NA)
+    }
+}
+```
+
+```{r}
+# change character value to numeric
+result.array.ics.half.2.cols <- c('p.met.half.2','hr.met.half.2',
+                                  'lower.95.hr.met.half.2','upper.95.hr.met.half.2')
+
+for (col in result.array.ics.half.2.cols){
+    result.array.ics.half.2[[col]] <- as.numeric(result.array.ics.half.2[[col]])
+}
+```
+
+```{r}
+# merge to have met name
+result.array.ics.half.2.info <- result.array.ics.half.2 %>% left_join(mets.info, by = 'met')
+result.array.ics.half.2.info %>% filter(p.met.half.2 < 0.05/117) %>% arrange(p.met.half.2)
+```
+
+### Combine results from two cox regression models
+```{r}
+result.array.ics.half <- result.array.ics.half.1 %>% left_join(result.array.ics.half.2, 
+                                                               by = c('i','met'))
+dim(result.array.ics.half)
+head(result.array.ics.half)
+```
+
+```{r}
+# merge to have met name
+result.array.ics.half.info <- result.array.ics.half %>% left_join(mets.info, by = 'met')
+result.array.ics.half.info %>% select(met, CHEMICAL_NAME, 
+                                      p.met.half.1, hr.met.half.1, 
+                                      p.met.half.2, hr.met.half.2) %>%
+arrange(p.met.half.1)
+```
+
+```{r}
+# extract only hazard ratio of met
+hr.met.half <- result.array.ics.half %>% select(met,hr.met.half.1,hr.met.half.2)
+dim(hr.met.half)
+# reshape
+hr.met.half <- gather(hr.met.half, key = "variable", value = "value", -met)
+colnames(hr.met.half)[colnames(hr.met.half) == 'value'] <- 'Hazard.ratio.mets'
+colnames(hr.met.half)[colnames(hr.met.half) == 'variable'] <- 'ICS.half'
+hr.met.half$ICS.half[hr.met.half$ICS.half == 'hr.met.half.1'] <- 'Low'
+hr.met.half$ICS.half[hr.met.half$ICS.half == 'hr.met.half.2'] <- 'High'
+```
+
+```{r}
+# extract only lower 95 hazard ratio of met
+lower.95.hr.met.half <- result.array.ics.half %>% select(met,lower.95.hr.met.half.1,
+                                                         lower.95.hr.met.half.2)
+# reshape
+lower.95.hr.met.half <- gather(lower.95.hr.met.half, key = "variable", 
+                               value = "value", -met)
+colnames(lower.95.hr.met.half)[colnames(lower.95.hr.met.half) == 'value'] <- 'Lower.95.hr.mets'
+colnames(lower.95.hr.met.half)[colnames(lower.95.hr.met.half) == 'variable'] <- 'ICS.half'
+lower.95.hr.met.half$ICS.half[lower.95.hr.met.half$ICS.half == 'lower.95.hr.met.half.1'] <- 'Low'
+lower.95.hr.met.half$ICS.half[lower.95.hr.met.half$ICS.half == 'lower.95.hr.met.half.2'] <- 'High'
+```
+
+```{r}
+# extract only upper 95 hazard ratio of met
+upper.95.hr.met.half <- result.array.ics.half %>% select(met,upper.95.hr.met.half.1,upper.95.hr.met.half.2)
+# reshape
+upper.95.hr.met.half <- gather(upper.95.hr.met.half, key = "variable", 
+                               value = "value", -met)
+colnames(upper.95.hr.met.half)[colnames(upper.95.hr.met.half) == 'value'] <- 'Upper.95.hr.mets'
+colnames(upper.95.hr.met.half)[colnames(upper.95.hr.met.half) == 'variable'] <- 'ICS.half'
+upper.95.hr.met.half$ICS.half[upper.95.hr.met.half$ICS.half == 'upper.95.hr.met.half.1'] <- 'Low'
+upper.95.hr.met.half$ICS.half[upper.95.hr.met.half$ICS.half == 'upper.95.hr.met.half.2'] <- 'High'
+```
+
+```{r}
+# merge
+hr.met.all.half <- hr.met.half %>% left_join(lower.95.hr.met.half, by = c('met','ICS.half')) %>%
+                    left_join(upper.95.hr.met.half, by = c('met','ICS.half'))
+# merge to have met name
+hr.met.all.half.info <- hr.met.all.half %>% left_join(mets.info, by = 'met')
+```
+
+```{r}
+# load top 10
+results.dir = '...'
+cox.result <- read.csv(file.path(results.dir, 'All_Races_Cox_model_OCS_result.csv'))
+nominal.sig.mets <- cox.result %>% filter(p.met < 0.05) %>% arrange(p.met)
+top.10 <- nominal.sig.mets[c(1:10),] %>% select(met, CHEMICAL_NAME, SUPER_PATHWAY, SUB_PATHWAY, 
+                                       exp.est.met, lower.95.met, upper.95.met, p.met)
+top.10
+```
+
+```{r}
+# plot for sub pathway: Figure 3
+top.10.HR.less.1 <- top.10 %>% filter(exp.est.met < 1)
+hr.met.all.half.less.1 <- hr.met.all.half.info %>% filter(CHEMICAL_NAME %in% top.10.HR.less.1$CHEMICAL_NAME)
+# plot for sub pathway: Figure 3
+plot <- ggplot(hr.met.all.half.less.1, aes(x=ICS.half, y=Hazard.ratio.mets, group = CHEMICAL_NAME, 
+                                         color = CHEMICAL_NAME)) + 
+        geom_line() + geom_point(size = 3)+
+        scale_color_brewer(palette="Paired")+ theme_minimal() +
+        xlab("\nMedian Group of Number of ICS prescription") + ylab("\nHazard Ratio") +
+        theme(axis.text = element_text(face="bold", size=14),
+              axis.title= element_text(size=18,face="bold"),
+              plot.title =  element_text(size=18,face="bold",hjust = 0.5))
+ggsave("All_Races_hazard_ratio_half_ICS_prescription_increase.tiff", path = results.dir, 
+       width = 14, height = 7, dpi=700)
+```
+
+```{r}
+top.10.HR.more.1 <- top.10 %>% filter(exp.est.met > 1)
+hr.met.all.half.more.1 <- hr.met.all.half.info %>% filter(CHEMICAL_NAME %in% top.10.HR.more.1$CHEMICAL_NAME)
+# plot for sub pathway: Figure 3
+plot <- ggplot(hr.met.all.half.more.1, aes(x=ICS.half, y=Hazard.ratio.mets, group = CHEMICAL_NAME, 
+                                         color = CHEMICAL_NAME)) + 
+        geom_line() + geom_point(size = 3)+
+        scale_color_brewer(palette="Paired")+ theme_minimal() +
+        xlab("\nMedian Group of Number of ICS prescription") + ylab("\nHazard Ratio") +
+        theme(axis.text = element_text(face="bold", size=14),
+              axis.title= element_text(size=18,face="bold"),
+              plot.title =  element_text(size=18,face="bold",hjust = 0.5))
+ggsave("All_Races_hazard_ratio_half_ICS_prescription_decrease.tiff", path = results.dir, 
+       width = 14, height = 7, dpi=700)
+```
+
+```{r}
+# Summary table
+hr.met.all.half.info.1 <- hr.met.all.half.info %>% mutate(across(c(Hazard.ratio.mets, Lower.95.hr.mets, 
+                                                                  Upper.95.hr.mets), as.numeric)) %>% 
+                                                    mutate(across(c(Hazard.ratio.mets, Lower.95.hr.mets, 
+                                                                Upper.95.hr.mets), round, 2))
+hr.met.all.half.info.1$HR_95_CI <- str_c(hr.met.all.half.info.1$Hazard.ratio.mets, ' (', 
+                                         hr.met.all.half.info.1$Lower.95.hr.mets, ',', 
+                                         hr.met.all.half.info.1$Upper.95.hr.mets, ')')
+hr.met.all.half.info.1.out <- hr.met.all.half.info.1 %>% select(ICS.half, CHEMICAL_NAME, 
+                                                                SUPER_PATHWAY, SUB_PATHWAY, 
+                                                                HR_95_CI)
+# Low
+hr.met.half.1.table <- hr.met.all.half.info.1.out %>% filter(ICS.half == 'Low')
+# Rename column where names is 'HR_95_CI'
+names(hr.met.half.1.table)[names(hr.met.half.1.table) == 'HR_95_CI'] <- 'HR_Met_Low_ICS'
+hr.met.half.1.table <- hr.met.half.1.table %>% left_join(result.array.ics.half.1.info[,c('CHEMICAL_NAME',
+                                                                                        'p.met.half.1')], by = 'CHEMICAL_NAME')
+names(hr.met.half.1.table)[names(hr.met.half.1.table) == 'p.met.half.1'] <- 'P_Met_Low_ICS'
+head(hr.met.half.1.table)
+```
+
+```{r}
+# High number of ICS prescription
+hr.met.half.2.table <- hr.met.all.half.info.1.out %>% filter(ICS.half == 'High')
+# Rename column where names is 'HR_95_CI'
+names(hr.met.half.2.table)[names(hr.met.half.2.table) == 'HR_95_CI'] <- 'HR_Met_High_ICS'
+hr.met.half.2.table <- hr.met.half.2.table %>% left_join(result.array.ics.half.2.info[,c('CHEMICAL_NAME',
+                                                                                        'p.met.half.2')], by = 'CHEMICAL_NAME')
+names(hr.met.half.2.table)[names(hr.met.half.2.table) == 'p.met.half.2'] <- 'P_Met_High_ICS'
+```
+
+```{r}
+# Merge two files
+hr.met.halfs.table <- hr.met.half.1.table %>% left_join(hr.met.half.2.table[,c('CHEMICAL_NAME', 'HR_Met_High_ICS', 'P_Met_High_ICS')], 
+                                                                               by = 'CHEMICAL_NAME')
+hr.met.halfs.table <- hr.met.halfs.table %>% select(-c(ICS.half))
+hr.met.halfs.table
+write.csv(hr.met.halfs.table, file.path(results.dir, 'All_Races_Hazard_Ratio_interaction.csv'), row.names = FALSE)
+```
+
+```{r}
+# Table 4: Top 10
+top.10.hr.met.halfs.table <- hr.met.halfs.table %>% filter(CHEMICAL_NAME %in% top.10$CHEMICAL_NAME) %>% arrange(HR_Met_Low_ICS)
+write.csv(top.10.hr.met.halfs.table, file.path(results.dir, 'All_Races_Hazard_Ratio_interaction_top_10.csv'), 
+          row.names = FALSE)
+hr.sig.met.halfs.table <- hr.met.halfs.table %>% filter(CHEMICAL_NAME %in% nominal.sig.mets$CHEMICAL_NAME)
+write.csv(hr.sig.met.halfs.table, file.path(results.dir, 'All_Races_Hazard_Ratio_interaction_sig_met.csv'), row.names = FALSE)
+```
+
+```{r}
+# check how many of metabolite have significant interaction
+nominal.sig.mets <- cox.result %>% filter(p.met < 0.05) %>% arrange(p.met)
+sig.met.and.inter <- nominal.sig.mets %>% filter(p.ics.5y.met < 0.05)
+sig.met.sig.inter <- hr.sig.met.halfs.table %>% filter(CHEMICAL_NAME %in% sig.met.and.inter$CHEMICAL_NAME)
+write.csv(sig.met.sig.inter, file.path(results.dir, 'All_Races_Hazard_Ratio_sig_interaction_sig_met.csv'), row.names = FALSE)
+```

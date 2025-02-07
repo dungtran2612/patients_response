@@ -1,0 +1,111 @@
+---
+title: "Gene set analysis result summary"
+author: "Ivy Tran"
+date: "2025-01-08"
+output: html_document
+---
+```{r}
+library('dplyr')
+packageVersion('dplyr')
+```
+
+```{r}
+# linear association between SNPs and cortisol
+gene.set.dir = '...'
+assoc.result <- read.table(file.path(gene.set.dir,
+                'global_gene_set_perm_10000.assoc.linear'), 
+                header = TRUE)
+head(assoc.result)
+```
+
+```{r}
+# gene set result
+global.gene.result <- read.table(file.path(gene.set.dir,
+                    'global_gene_set_perm_10000.assoc.linear.set.mperm'),
+                                 header = TRUE)
+head(global.gene.result)
+```
+
+```{r}
+names(global.gene.result)[names(global.gene.result) == 'SNPS'] <- 'SNP'
+# merge two files
+global.gene.result.1 <- global.gene.result %>% left_join(assoc.result[,c('SNP','A1','TEST',
+                                                                         'BETA', 'L95', 'U95', 'P')], 
+                                                                     by = 'SNP')
+head(global.gene.result.1)
+```
+
+```{r}
+# open MAF
+maf <- read.table(file.path(gene.set.dir, 'chrs_1_22_SNP_419_white_ind_shared_SNPs_MAF.frq'),
+                                 header = TRUE)
+colnames(maf) <- c('CHR', 'SNP', 'Minor_Allele', 'Major_Allele', 'MAF', 'NCHROBS')
+head(maf)
+```
+
+```{r}
+# merge
+global.gene.result.2 <- global.gene.result.1 %>% left_join(maf, by = 'SNP')
+names(global.gene.result.2)[names(global.gene.result.2) == 'A1'] <- 'Effect_Allele'
+head(global.gene.result.2)
+```
+
+```{r}
+top.snps <- global.gene.result.2$SNP
+# create a list of top SNPs for each (lowest p value)
+write.table(top.snps, file.path(gene.set.dir, 'List_of_sig_snps.txt'), 
+            sep = "\t", col.names = FALSE, row.names = FALSE, quote = FALSE) 
+```
+
+```{r}
+gene.list <- global.gene.result.2 %>% dplyr::select(SET, SNP)
+my.symbols <- global.gene.result.2$SET
+library(org.Hs.eg.db)
+packageVersion('org.Hs.eg.db')
+entrez.id <- AnnotationDbi::select(org.Hs.eg.db, keys=my.symbols, columns=c('SYMBOL', 'ENTREZID'), keytype='SYMBOL')
+gene.list.id <- gene.list %>% left_join(entrez.id, by = c('SET' = 'SYMBOL'))
+head(gene.list.id)
+```
+
+```{r}
+sum(is.na(gene.list.id$ENTREZID)) 
+```
+
+```{r}
+gene.list.id[duplicated(gene.list.id[,'SET']), ]
+```
+
+```{r}
+# remove gene id
+remove.id <- c('100124696', '100505381', '51072', '100187828')
+gene.list.id %>% filter(ENTREZID %in% remove.id)
+dim(gene.list.id)
+gene.list.id.1 <- gene.list.id %>% filter(!ENTREZID %in% remove.id)
+dim(gene.list.id.1)
+```
+
+```{r}
+# list of genes
+result.dir = '...'
+write.csv(gene.list.id.1, file.path(result.dir, 'list_of_global_genes_shared_snps.csv'), row.names = FALSE)
+```
+
+```{r}
+global.gene.result.2 %>% filter(EMP1 < 0.05) %>% arrange(EMP1) # 1374 genes
+```
+
+```{r}
+global.gene.result.2 %>% filter(EMP1 < 0.05/9) %>% arrange(EMP1) #142
+```
+
+```{r}
+# output
+write.csv(global.gene.result.2, file.path(result.dir, 
+                                          'global_gene_assoc_result.csv'), 
+          row.names = FALSE)
+```
+
+```{r}
+global.sig.gene <- global.gene.result.2 %>% filter(EMP1 < 0.05/9) 
+write.csv(global.sig.gene, file.path(result.dir, 'sig_global_gene_assoc_005_9PCs.csv'), row.names = FALSE)
+```

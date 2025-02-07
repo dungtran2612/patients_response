@@ -1,0 +1,89 @@
+---
+title: "Prepare gene set hg38"
+author: "Ivy Tran"
+date: "2025-01-08"
+output: html_document
+---
+
+```{r}
+# load packages
+library(dplyr)
+packageVersion('dplyr')
+```
+# Prepare gene list
+```{r}
+# gene set hg 38 download from UCSC Table Browser RefSeq track data assembly Dec 2013:https://genome.ucsc.edu/cgi-bin/hgTables
+# download on June 14 2024
+gene.set.dir = '...'
+gene.set.hg38 <- read.table(file.path(gene.set.dir,'gene_list_hg_38.txt'), header = TRUE)
+head(gene.set.hg38)
+```
+
+```{r}
+# show A1BG gene
+gene.set.hg38 %>% filter(name2 == 'A1BG') 
+# position in KEGG: 19:complement(58345183..58353492) --> use txStart and txEnd
+```
+
+```{r}
+gene.set.hg38.1 <- gene.set.hg38 %>% select(chrom, txStart, txEnd, name2)
+head(gene.set.hg38.1)
+```
+
+```{r}
+# reformat
+gene.set.hg38.1$chrom <- gsub("chr", "", gene.set.hg38.1$chrom)
+head(gene.set.hg38.1)
+```
+
+```{r}
+# some duplication
+length(unique(gene.set.hg38.1$name2))
+dim(gene.set.hg38.1)
+```
+
+```{r}
+# clean duplication
+gene.set.hg38.2 <- distinct(gene.set.hg38.1, name2, .keep_all = TRUE)
+length(unique(gene.set.hg38.2$name2))
+```
+
+```{r}
+# check chromosome
+unique(gene.set.hg38.2$chrom)
+```
+```{r}
+# select only chrom 1 to 22
+chr = c(1:22)
+gene.set.hg38.3 <- filter(gene.set.hg38.2, chrom %in% chr)
+unique(gene.set.hg38.3$chrom)
+```
+
+```{r}
+# export output
+write.table(gene.set.hg38.3, file.path(gene.set.dir, 'gene_list_hg_38_plink_format.txt'), 
+            sep = "\t", col.names = FALSE, row.names = FALSE, quote = FALSE) 
+```
+# Prepare SNP and position file
+```{r}
+bim.file <- read.table(file.path(gene.set.dir,'chrs_1_22_SNP_419_white_ind_shared_SNPs.bim'), header = FALSE)
+colnames(bim.file) <- c('CHR', 'SNP', 'POS_CM', 'POS', 'Minor_Allele', 'Major_Allele')
+head(bim.file)
+```
+
+```{r}
+snp.pos <- bim.file %>% select(CHR, SNP, POS)
+colnames(snp.pos)[colnames(snp.pos) == 'POS'] = 'BP'
+head(snp.pos)
+```
+
+```{r}
+snp.pos$CHR <- as.character(snp.pos$CHR)
+unique(snp.pos$CHR)
+```
+
+```{r}
+# export
+write.table(snp.pos, file.path(gene.set.dir, 'shared_snps_pos.txt'), 
+            sep = "\t", col.names = TRUE, row.names = FALSE, quote = FALSE) 
+```

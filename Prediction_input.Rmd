@@ -1,0 +1,276 @@
+---
+title: "Prepare input for machine learning prediction"
+author: "Ivy Tran"
+date: "2025-01-08"
+output: html_document
+---
+**Use validated genes and metabolites**
+```{r}
+# load library
+library('dplyr')
+packageVersion('dplyr')
+library(ggrepel)
+packageVersion('ggrepel')
+library(vcfR)
+packageVersion('vcfR')
+```
+# Encode genotype data
+```{r}
+# directory
+genes.dir = '...'
+```
+
+```{r}
+# all top SNPs (lowest p value of each genes)
+top.snps.vcf <- read.vcfR(file.path(genes.dir, 'top_SNPs.vcf'), verbose = FALSE)
+top.snps.vcf.gt <- extract.gt(top.snps.vcf, element = c('GT'))
+top.snps.vcf.gt <- as.data.frame(top.snps.vcf.gt)
+top.snps.vcf.gt$SNP <- row.names(top.snps.vcf.gt)  
+top.snps.vcf.gt <- top.snps.vcf.gt %>% relocate(SNP, .before = 'R10C01-10014025')
+head(top.snps.vcf.gt)
+```
+
+```{r}
+# open gene set result: 
+result.dir = '...'
+gene.set.result <- read.csv(file.path(result.dir, 'global_gene_assoc_result.csv'))
+head(gene.set.result)
+```
+```{r}
+overlap.genes <- read.csv(file.path(result.dir, 'Overlap_sig_genes.csv'))
+overlap.genes.result <- gene.set.result %>% filter(SET %in% overlap.genes$SET)
+head(overlap.genes.result)
+```
+
+```{r}
+summary(overlap.genes.result$MAF)
+```
+
+```{r}
+# how many top SNPs
+length(unique(overlap.genes.result$SNP)) #1038 because some genes have same top SNP
+# summary P value of top SNP
+summary(overlap.genes.result$P)
+```
+```{r}
+# how many sig genes
+length(unique(overlap.genes.result$SET)) #76
+```
+
+```{r}
+# select 57 SNPs
+sig.snps.vcf.gt <- top.snps.vcf.gt %>% filter(SNP %in% overlap.genes.result$SNP)
+head(sig.snps.vcf.gt)
+```
+
+```{r}
+# merge to have major allele and minor allele for each SNP
+sig.snps.vcf.gt <- sig.snps.vcf.gt %>% left_join(overlap.genes.result[,c('SNP', 'Effect_Allele', 
+                                                              'Minor_Allele', 'Major_Allele', 'BETA')], by = 'SNP')
+sig.snps.vcf.gt <- distinct(sig.snps.vcf.gt)
+head(sig.snps.vcf.gt)
+```
+
+```{r}
+sig.snps.vcf.gt <- sig.snps.vcf.gt %>% relocate(Minor_Allele, .after = 'SNP')
+sig.snps.vcf.gt <- sig.snps.vcf.gt %>% relocate(Major_Allele, .after = 'Minor_Allele')
+sig.snps.vcf.gt <- sig.snps.vcf.gt %>% relocate(Effect_Allele, .after = 'Major_Allele')
+sig.snps.vcf.gt <- sig.snps.vcf.gt %>% relocate(BETA, .after = 'Effect_Allele')
+head(sig.snps.vcf.gt)
+```
+
+```{r}
+# subset minor allele is effect allele 
+# (minor allele currently is 0, now convert to 1 if minor allele is affect allele)
+sig.snps.vcf.gt$Effect_minor <- ifelse(sig.snps.vcf.gt$Minor_Allele == sig.snps.vcf.gt$Effect_Allele, TRUE, FALSE)
+sig.snps.vcf.gt <- sig.snps.vcf.gt %>% relocate(Effect_minor, .after = 'Effect_Allele')
+head(sig.snps.vcf.gt)
+```
+
+```{r}
+table(sig.snps.vcf.gt$Effect_minor) # 52 minor allele is affected allele
+```
+
+```{r}
+which(colnames(sig.snps.vcf.gt) == 'R10C01-10014025')
+```
+
+```{r}
+which(colnames(sig.snps.vcf.gt) == 'R02C02-10100779')
+```
+
+```{r}
+# Get unique values for each selected column
+selected_columns <- c(7:425)
+all_unique_values <- unique(unlist(sig.snps.vcf.gt[selected_columns]))
+all_unique_values
+```
+
+```{r}
+# Create a Function to Recode Genotypes
+# Create a Function to Recode Genotypes
+recode_genotype <- function(genotype, major, minor, effect) {
+  if (effect == major) {
+    # If the effect allele is the major allele, return the genotype as is
+    return(genotype)
+  } else {
+    # If the effect allele is the minor allele, reverse the coding.
+    # temp" is a temporary placeholder used to facilitate the swapping of "0" and "1" in the genotype strings. 
+    recoded <- gsub("0", "temp", genotype)
+    recoded <- gsub("1", "0", recoded)
+    recoded <- gsub("temp", "1", recoded)
+    return(recoded)
+  }
+}
+```
+
+```{r}
+# Recode the genotypes for all samples
+# Recode the genotypes for all samples
+sig.snps.vcf.gt.1 <- sig.snps.vcf.gt
+for (i in 1:ncol(sig.snps.vcf.gt.1)) {
+  if (colnames(sig.snps.vcf.gt.1)[i] %in% c('SNP', 'Minor_Allele', 'Major_Allele', 
+                                            'Effect_Allele', 'Effect_minor', 'BETA')) next
+  
+  sig.snps.vcf.gt.1[, i] <- mapply(recode_genotype, sig.snps.vcf.gt.1[, i], 
+                                 sig.snps.vcf.gt.1$Major_Allele, sig.snps.vcf.gt.1$Minor_Allele, 
+                                 sig.snps.vcf.gt.1$Effect_Allele)
+}
+head(sig.snps.vcf.gt.1)
+```
+
+```{r}
+# change genotype to numeric 0,1,2 indicate the number of effect allele
+recode_to_numeric <- function(genotype) {
+  if (genotype == "1/1") {
+    return(2)
+  } else if (genotype == "0/1" || genotype == "1/0") {
+    return(1)
+  } else if (genotype == "0/0") {
+    return(0)
+  } else {
+    return(NA)  # In case there's an unexpected value
+  }
+}
+```
+
+```{r}
+# Apply the recoding function to each sample column
+sig.snps.vcf.final <- sig.snps.vcf.gt.1
+for (i in 1:ncol(sig.snps.vcf.final)) {
+  if (colnames(sig.snps.vcf.final)[i] %in% c('SNP', 'Minor_Allele', 'Major_Allele', 
+                                            'Effect_Allele', 'Effect_minor', 'BETA')) next
+  
+  sig.snps.vcf.final[, i] <- sapply(sig.snps.vcf.final[, i], recode_to_numeric)
+}
+head(sig.snps.vcf.final)
+```
+
+```{r}
+# select cols
+gene.score <- sig.snps.vcf.final %>% select(-c('Minor_Allele', 'Major_Allele', 'Effect_Allele', 'Effect_minor', 'BETA'))
+head(gene.score)
+```
+
+```{r}
+# replace SNP name with gene set
+gene.score.1 <- gene.score %>% left_join(overlap.genes.result[,c('SNP', 'SET')], by = 'SNP')
+head(gene.score.1)
+```
+
+```{r}
+# remove duplication of SNPs
+gene.score.1 <- gene.score.1[!duplicated(gene.score.1$SNP), ]
+length(unique(gene.score.1$SET))
+length(unique(gene.score.1$SNP))
+```
+
+```{r}
+# load genotype id
+data.dir = '...'
+phasic.genotype.id <- read.csv(file.path(data.dir, 'genotype_ID.csv'))
+phasic.genotype.id <- distinct(phasic.genotype.id)
+phasic.genotype.id <- phasic.genotype.id %>% filter(sample_info %in% colnames(gene.score.1))
+phasic.genotype.id$sample_name <- as.character(phasic.genotype.id$sample_name)
+dim(phasic.genotype.id)
+head(phasic.genotype.id)
+```
+
+```{r}
+table(phasic.genotype.id$sample_info %in% colnames(gene.score.1))
+```
+
+```{r}
+gene.score.1 <- gene.score.1 %>% relocate(SET, .before=SNP) %>% select(-SNP)
+head(gene.score.1)
+```
+```{r}
+gene.score.2 <- gene.score.1 %>% rename_at(vars(phasic.genotype.id$sample_info), ~ phasic.genotype.id$sample_name)
+gene.score.3 <- as.data.frame(t(gene.score.2))
+# Set the first row as the column names
+colnames(gene.score.3) <- gene.score.3[1, ]
+# Remove the first row
+gene.score.3 <- gene.score.3[-1, ]
+gene.score.3$Subject_Id <- rownames(gene.score.3)
+gene.score.3 <- gene.score.3 %>% relocate(Subject_Id, .before = 'MAN1C1')
+head(gene.score.3)
+```
+## Prepare met data
+```{r}
+# load met data
+met.data <- read.csv(file.path(data.dir, 'pheno_met.csv'))
+head(met.data)
+```
+
+
+```{r}
+# load validated met
+overlap.mets <- read.csv(file.path(result.dir, 'Validated_metabolites.csv'))
+overlap.mets
+```
+
+```{r}
+names.use <- names(met.data)[(names(met.data) %in% overlap.mets$met)]
+sig.met.data <- met.data[, c('Subject_Id', names.use)]
+head(sig.met.data)
+```
+
+```{r}
+sig.met.data$Subject_Id <- as.character(sig.met.data$Subject_Id)
+met.data$Subject_Id <- as.character(met.data$Subject_Id)
+
+input.data <- gene.score.3 %>% left_join(sig.met.data, by = 'Subject_Id') %>% 
+    left_join(met.data[,c('Subject_Id', 'Cortisol',
+                         'Cortisol_square')], by = 'Subject_Id')
+head(input.data)
+```
+
+```{r}
+# clinical variables
+which(colnames(met.data) == 'M35')
+clinical.variables <- met.data[,c(1:16)]
+head(clinical.variables)
+```
+
+```{r}
+clinical.variables <- clinical.variables %>% select('Subject_Id', 
+                                                    'Any_Bronchiectasis_Existence_Yes_No',
+                                                    'Any_Chronic_Bronchitis_Existence_Yes_No',
+                                                    'Gender_impute_all',
+                                                    'Age_at_plasma_collection_date',
+                                                    'Closest_collect_date_smoking_status',
+                                                    'BMI_median_closest_measure_date_to_collect_date_category',
+                                                    'Corticosteroids_total_number_of_prescriptions_within_5y_log',
+                                                    'ICS_Dose_Classification_5Y_Median',
+                                                    'Cortisol_closest_date_collect_date_gap_abs_quartile')
+head(clinical.variables)
+```
+
+```{r}
+input.data <- input.data %>% left_join(clinical.variables, by = 'Subject_Id')
+head(input.data)
+```
+
+```{r}
+write.csv(input.data, file.path(data.dir, 'validated_sig_genes_mets.csv'), row.names = FALSE)
+```

@@ -1,0 +1,249 @@
+---
+title: "Prepare phenotype file for gene set analysis"
+author: "Ivy Tran"
+date: "2025-01-06"
+output: html_document
+---
+
+```{r}
+# load packages
+library(dplyr)
+packageVersion('dplyr')
+library(tidyr)
+packageVersion('tidyr')
+```
+# Prepare cortisol (target)
+```{r}
+# load phenotype file from metabolomics analysis
+data.dir = '...'
+phasic <- read.csv(file.path(data.dir, 'phenotype.csv'))
+phasic <- separate(phasic, sample_info, into = c('FID', 'IID'), sep = '_')
+length(unique(phasic$Subject_Id)) # 442
+head(phasic)
+```
+```{r}
+# only 419 ind after quality control
+# Read the FAM file
+gene.set.dir = '...'
+fam.419 <- read.table(file.path(gene.set.dir, 'chrs_1_22_SNP_419_white_ind_shared_SNPs.fam'), 
+                                header = FALSE, stringsAsFactors = FALSE)
+colnames(fam.419) <- c('FID', 'IID', 'Paternal_ID', 'Maternal_ID', 'Sex', 'Phenotype')
+head(fam.419)
+
+```
+
+```{r}
+fam.419$FID <- as.character(fam.419$FID)
+phasic.419 <- fam.419 %>% left_join(phasic, by = c('FID', 'IID'))
+dim(phasic.419)
+head(phasic.419)
+```
+
+```{r}
+# select cortisol
+cortisol <- phasic.419 %>% select(FID, IID, Cortisol,
+                                      Cortisol_square)
+head(cortisol)
+```
+
+```{r}
+# cortisol, phenotype file
+write.table(cortisol, file.path(gene.set.dir, 'Cortisol_419_ind.txt'), sep = '\t', quote = FALSE, row.names = FALSE, col.names = TRUE)
+```
+
+# Prepare covariates
+
+```{r}
+# list of covariates same from metabolomics study
+covariates <- phasic.419 %>% select('FID', 'IID', 'Age_at_plasma_collection_date',
+                                   'Gender_impute_all', 'Closest_collect_date_smoking_status',
+                                   'BMI_median_closest_measure_date_to_collect_date_category',
+                                   'Corticosteroids_total_number_of_prescriptions_within_5y_log',
+                                   'ICS_Dose_Classification_5Y_Median',
+                                   'Cortisol_closest_date_collect_date_gap_abs_quartile',
+                                   'Any_Bronchiectasis_Existence_Yes_No',
+                                   'Any_Chronic_Bronchitis_Existence_Yes_No')
+head(covariates)
+```
+
+```{r}
+# days gap between cortisol measurement date and plasma collect date
+table(covariates$Cortisol_closest_date_collect_date_gap_abs_quartile)
+covariates$Cortisol_closest_date_collect_date_gap_abs_quartile[covariates$Cortisol_closest_date_collect_date_gap_abs_quartile == '1'] <- 'Group1'
+covariates$Cortisol_closest_date_collect_date_gap_abs_quartile[covariates$Cortisol_closest_date_collect_date_gap_abs_quartile == '2'] <- 'Group2'
+covariates$Cortisol_closest_date_collect_date_gap_abs_quartile[covariates$Cortisol_closest_date_collect_date_gap_abs_quartile == '3'] <- 'Group3'
+covariates$Cortisol_closest_date_collect_date_gap_abs_quartile[covariates$Cortisol_closest_date_collect_date_gap_abs_quartile == '4'] <- 'Group4'
+table(covariates$Cortisol_closest_date_collect_date_gap_abs_quartile)
+```
+
+```{r}
+# calculate pc
+eigenvalues <- read.table(file.path(gene.set.dir,
+                                    'chrs_1_22_SNP_419_white_ind_shared_SNPs_pruned_pca.eigenval'), 
+                      header = FALSE)
+eigenvalues <- eigenvalues$V1
+pve <- eigenvalues/sum(eigenvalues)
+pve
+cumsum(pve)
+```
+
+```{r}
+# Create a data frame for ggplot
+library(ggplot2)
+packageVersion('ggplot2')
+scree_data <- data.frame(Component = 1:length(eigenvalues), Eigenvalue = eigenvalues)
+
+# Plot the scree plot using ggplot
+ggplot(scree_data, aes(x = Component, y = Eigenvalue)) +
+  geom_point() +
+  geom_line() +
+  labs(title = 'Scree Plot', x = 'Component', y = 'Eigenvalue') +
+  theme_minimal()
+```
+
+```{r}
+columns = c('fid', 'Sample.name', 'pca1', 'pca2', 'pca3', 'pca4', 'pca5', 'pca6','pca7','pca8','pca9','pca10')
+pca.419 <- read.table(file.path(gene.set.dir,'PHASIC_chrs_1_22_SNP_419_white_ind_shared_SNPs_pruned_pca.eigenvec'), sep = '',
+                 header=F, col.names=columns)[,c(1:12)]
+head(pca.419)
+```
+
+```{r}
+pc <- pca.419 %>% select(fid, Sample.name, pca1, pca2, pca3, pca4, pca5, pca6, pca7, pca8, pca9)
+head(pc)
+```
+
+```{r}
+# rename columns
+names(pc)[names(pc) == 'fid'] <- 'FID'
+names(pc)[names(pc) == 'Sample.name'] <- 'IID'
+# convert col type
+pc$FID <- as.character(pc$FID)
+pc$IID <- as.character(pc$IID)
+```
+
+```{r}
+# merge
+covariates.1 <- covariates %>% left_join(pc, by = c('FID', 'IID'))
+head(covariates.1)
+```
+## Create dummy variables
+```{r}
+# Dummy Variable for gender: 1 Female and 0 Male
+table(covariates.1$Gender_impute_all)
+covariates.1$Gender_Female <- ifelse(covariates.1$Gender_impute_all == 'Female', 1, 0)
+table(covariates.1$Gender_Female)
+```
+
+```{r}
+# Dummy Variables for BMI
+table(covariates.1$BMI_median_closest_measure_date_to_collect_date_category)
+
+covariates.1$BMI_median_Obesity <- ifelse(covariates.1$BMI_median_closest_measure_date_to_collect_date_category == 'Obesity',1,0)
+covariates.1$BMI_median_Overweight <- ifelse(covariates.1$BMI_median_closest_measure_date_to_collect_date_category == 'Overweight',1,0)
+covariates.1$BMI_median_Underweight <- ifelse(covariates.1$BMI_median_closest_measure_date_to_collect_date_category == 'Underweight',1,0)
+
+table(covariates.1$BMI_median_Obesity)
+table(covariates.1$BMI_median_Overweight)
+table(covariates.1$BMI_median_Underweight)
+```
+
+```{r}
+# dummy variables for smoking status
+table(covariates.1$Closest_collect_date_smoking_status) 
+
+covariates.1$Closest_plasma_collect_date_former_smoker <- ifelse(covariates.1$Closest_collect_date_smoking_status == 'Former_Smoker',1,0)
+covariates.1$Closest_plasma_collect_date_never_smoker <- ifelse(covariates.1$Closest_collect_date_smoking_status == 'Never_Smoker',1,0)
+
+table(covariates.1$Closest_plasma_collect_date_former_smoker)
+table(covariates.1$Closest_plasma_collect_date_never_smoker)
+```
+
+```{r}
+# dummy variables for Bronchiectasis
+table(covariates.1$Any_Bronchiectasis_Existence_Yes_No) # add dummy variables
+covariates.1$Bronchiectasis_Existence_Yes <- ifelse(covariates.1$Any_Bronchiectasis_Existence_Yes_No == 'Yes', 1, 0)
+table(covariates.1$Bronchiectasis_Existence_Yes)
+```
+
+```{r}
+# dummy variables for Chronic Bronchitis
+table(covariates.1$Any_Chronic_Bronchitis_Existence_Yes_No) # add dummy
+covariates.1$Chronic_Bronchitis_Existence_Yes <- ifelse(covariates.1$Any_Chronic_Bronchitis_Existence_Yes_No == 'Yes', 1, 0)
+table(covariates.1$Chronic_Bronchitis_Existence_Yes)
+```
+
+
+```{r}
+# dummy variables for ICS dosage
+typeof(covariates.1$ICS_Dose_Classification_5Y_Median)
+covariates.1$ICS_Dose_Classification_5Y_Median <- as.character(covariates.1$ICS_Dose_Classification_5Y_Median)
+table(covariates.1$ICS_Dose_Classification_5Y_Median)
+```
+
+```{r}
+# dummy variables for ICS dosage
+covariates.1$ICS_Dose_Classification_5Y_Median_1_5 <- ifelse(covariates.1$ICS_Dose_Classification_5Y_Median == 1.5,1,0)
+covariates.1$ICS_Dose_Classification_5Y_Median_2 <- ifelse(covariates.1$ICS_Dose_Classification_5Y_Median == 2,1,0)
+table(covariates.1$ICS_Dose_Classification_5Y_Median_1_5)
+table(covariates.1$ICS_Dose_Classification_5Y_Median_2)
+```
+
+```{r}
+# cortisol date
+table(covariates.1$Cortisol_closest_date_collect_date_gap_abs_quartile)
+# dummy variables for cortisol date
+covariates.1$Cortisol_closest_date_collect_date_gap_abs_quartile_2 <- ifelse(covariates.1$Cortisol_closest_date_collect_date_gap_abs_quartile == 'Group2',1,0)
+covariates.1$Cortisol_closest_date_collect_date_gap_abs_quartile_3 <- ifelse(covariates.1$Cortisol_closest_date_collect_date_gap_abs_quartile == 'Group3',1,0)
+covariates.1$Cortisol_closest_date_collect_date_gap_abs_quartile_4 <- ifelse(covariates.1$Cortisol_closest_date_collect_date_gap_abs_quartile == 'Group4',1,0)
+table(covariates.1$Cortisol_closest_date_collect_date_gap_abs_quartile_2)
+table(covariates.1$Cortisol_closest_date_collect_date_gap_abs_quartile_3)
+table(covariates.1$Cortisol_closest_date_collect_date_gap_abs_quartile_4)
+```
+
+```{r}
+covariates.2 <- covariates.1 %>% select(FID, IID, pca1, 
+                                        pca2, pca3, pca4, pca5, 
+                                        pca6, pca7, pca8, pca9,
+                                        Age_at_plasma_collection_date,
+                                        Gender_Female, BMI_median_Obesity, 
+                                        BMI_median_Overweight, 
+                                        BMI_median_Underweight, 
+                                        Closest_plasma_collect_date_former_smoker, 
+                                        Closest_plasma_collect_date_never_smoker, 
+                                        Bronchiectasis_Existence_Yes, 
+                                        Chronic_Bronchitis_Existence_Yes, 
+                                        Corticosteroids_total_number_of_prescriptions_within_5y_log,
+                                        ICS_Dose_Classification_5Y_Median_1_5, 
+                                        ICS_Dose_Classification_5Y_Median_2, 
+                                        Cortisol_closest_date_collect_date_gap_abs_quartile_2, 
+                                        Cortisol_closest_date_collect_date_gap_abs_quartile_3, 
+                                        Cortisol_closest_date_collect_date_gap_abs_quartile_4)
+head(covariates.2)
+```
+
+```{r}
+# covariate, phenotype file
+write.table(covariates.2, file.path(gene.set.dir, 'Covariates_419_ind_shared_snps.txt'), sep = '\t', quote = FALSE, row.names = FALSE, col.names = TRUE)
+```
+
+```{r}
+# make new fam file including gender
+# code Sex (1=male; 2=female; other=unknown)
+gender.419 <- phasic.419 %>% select(FID, IID, Gender_impute_all)
+fam.419.new <- fam.419 %>% left_join(gender.419, by = c('FID', 'IID'))
+fam.419.new$Gender_Code <- ifelse(fam.419.new$Gender_impute_all == 'Male', 1,
+                      ifelse(fam.419.new$Gender_impute_all == 'Female', 2, 0))
+fam.419.new.1 <- fam.419.new %>% select(FID, IID, Paternal_ID, Maternal_ID, Gender_Code, Phenotype)
+head(fam.419.new.1)
+```
+
+```{r}
+names(fam.419.new.1)[names(fam.419.new.1) == 'Gender_Code'] <- 'Sex'
+sum(is.na(fam.419.new.1$Sex))
+```
+
+```{r}
+write.table(fam.419.new.1, file.path(gene.set.dir, 'chrs_1_22_SNP_419_white_ind_shared_SNPs.fam'), 
+            sep = '\t', col.names = FALSE, row.names = FALSE, quote = FALSE) 
+```

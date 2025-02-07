@@ -1,0 +1,63 @@
+I. QC for population structure to impute missing races. Due to a large size of files, all vcf and plink files were stored in tmp directory
+srun -p linux12h -c 4 -m 40G
+cd # directory
+module load plink/1.9
+
+1. Remove all variants not genotyped to 90% (10% missing)
+plink --bfile GSA_chrs_1_22_SNP_R2_avg_06 --geno 0.1 --make-bed --keep-allele-order --out GSA_chrs_1_22_SNP_R2_avg_06_geno_01
+
+# 0 variants removed due to missing genotype data due to imputed data
+# 61,605,577 variants and 698 people pass filters and QC.
+
+2. Remove monomorphic SNPs. --maf 0.000001 will remove anything will a MAF below 0.000001, basically anything with a MAF of 0 (monomorphic)
+plink --bfile GSA_chrs_1_22_SNP_R2_avg_06_geno_01 --maf 0.000000001 --make-bed --keep-allele-order --out chrs_1_22_poly_SNPs
+
+# 29,594,643 variants and 698 people pass filters and QC.
+
+3. Remove all SNPs with "*" as an alternative allele (hemizygous snps)
+grep "*" chrs_1_22_poly_SNPs.bim | awk '{print $2}' > chrs_1_22_allHemizgyous.txt
+# empty output file, so no hemizygous snps
+
+4. Identification of individuals with poor genotype quality
+## Low quality DNA samples that need to be removed from the sample. The cut-off is 5% missing rate. Individuals with more than 5% missing genotypes are removed from the analysis
+
+plink --bfile chrs_1_22_poly_SNPs --mind 0.05 --make-bed --keep-allele-order --out chrs_1_22_poly_SNPs_mind_005
+
+## 0 people removed due to missing genotype data (might be due to using imputed file)
+
+5. Remove SNPs with a low MAF frequency.
+plink --bfile chrs_1_22_poly_SNPs_mind_005 --maf 0.05 --make-bed --keep-allele-order --out chrs_1_22_poly_SNPs_mind_005_maf_005
+
+# 6,002,305 variants and 698 people pass filters and QC.
+# A conventional MAF threshold for a regular GWAS is between 0.01 or 0.05, depending on sample size.
+
+6. Delete SNPs which are not in Hardy-Weinberg equilibrium (HWE)
+plink --bfile chrs_1_22_poly_SNPs_mind_005_maf_005 --hwe 1e-05 --make-bed --keep-allele-order --out chrs_1_22_poly_SNPs_mind_005_maf_005_hwe_1e-05
+
+# 5,929,139 variants and 698 people pass filters and QC.
+
+7. Run PCA
+# LD-based variant pruning
+plink --bfile chrs_1_22_poly_SNPs_mind_005_maf_005_hwe_1e-05 \
+--indep-pairwise 50 5 0.5 \
+--out chrs_1_22_poly_SNPs_mind_005_maf_005_hwe_1e-05_pruned
+
+# 5,126,736 of 5,929,139 variants removed.
+
+plink --bfile chrs_1_22_poly_SNPs_mind_005_maf_005_hwe_1e-05 \
+--extract chrs_1_22_poly_SNPs_mind_005_maf_005_hwe_1e-05_pruned.prune.in \
+--pca 10 \
+--out chrs_1_22_poly_SNPs_mind_005_maf_005_hwe_1e-05_pruned_pca
+
+II. QC for imputation of missing gender
+# Males only have one copy of X chromosome and thus can not be heterozygous for any marker in sex chromosome. Using X chromosome file
+plink --bfile GSA_imputed_chrX_SNP_R2_avg_06 --maf 0.000000001 --make-bed --keep-allele-order --out chrs_X_poly_SNPs
+
+# 1,051,015 variants and 698 people pass filters and QC.
+
+plink --bfile chrs_X_poly_SNPs --maf 0.05 --hwe 1e-05 --make-bed --keep-allele-order --out chrs_X_poly_SNPs_maf_005_hwe_1e-05
+
+# 12,894 variants and 698 people pass filters and QC.
+
+## check sex. Before checking sex, need to change fam file with gender info from biobank RPDR
+plink --bfile chrs_X_poly_SNPs_maf_005_hwe_1e-05 --check-sex --out chrs_X_SNP_cleaned_checksex

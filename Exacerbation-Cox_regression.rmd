@@ -1,0 +1,388 @@
+# Cox regression (target: duration between plasma collection and 1st OCS prescription in days)
+```{r}
+#Load library
+library(dplyr)
+packageVersion('dplyr')
+library(survival)
+packageVersion('survival')
+library(forcats)
+packageVersion('forcats')
+library(readxl)
+packageVersion('readxl')
+library(stringr)
+packageVersion('stringr')
+library(ggplot2)
+packageVersion('ggplot2')
+```
+
+```{r}
+#load data
+data.dir = '...'
+first.ocs <- read.csv(file.path(data.dir, 'All_races_Cox_model_1st_OCS_aft_plasma_pheno_mets.csv'))
+dim(first.ocs)
+length(unique(first.ocs$Subject_Id)) # 447 selected subjects
+```
+
+```{r}
+#create result data frame to store result
+result.array <- data.frame(matrix(ncol=50, nrow=0))
+colnames(result.array) <- c('i', 'met', 
+                           'p.met', 'est.met', 'exp.est.met',        
+                           'p.age', 'est.age', 'exp.est.age', 
+                           'p.male', 'est.male', 'exp.est.male',
+                           'p.white', 'est.white', 'exp.est.white',
+                           'p.bron.yes', 'est.bron.yes', 'exp.est.bron.yes', 
+                           'p.chr.bron.yes', 'est.chr.bron.yes', 'exp.est.chr.bron.yes',
+                           'p.bmi', 'est.bmi', 'exp.est.bmi', 
+                           'p.for.smoker', 'est.for.smoker', 'exp.est.for.smoker',
+                           'p.never.smoker', 'est.never.smoker', 'exp.est.never.smoker', 
+                           'p.ocs.bef', 'est.ocs.bef', 'exp.est.ocs.bef',
+                           'p.ics.dose.1.5', 'est.ics.dose.1.5', 'exp.est.ics.dose.1.5',
+                           'p.ics.dose.2', 'est.ics.dose.2', 'exp.est.ics.dose.2',
+                           'p.ics.5y', 'est.ics.5y', 'exp.est.ics.5y',
+                           'p.ics.5y.met', 'est.ics.5y.met', 'exp.est.ics.5y.met',      
+                           'lower.95.met','upper.95.met',
+                           'lower.95.ics.5y','upper.95.ics.5y',
+                           'lower.95.ics.5y.met','upper.95.ics.5y.met')
+```
+
+```{r}
+# run loop of cox regression model
+which(colnames(first.ocs)== 'M35') # 1st metabolite in 29th column
+for (i in 29:ncol(first.ocs)) {   #loop through each column             
+    chem.name <- colnames(first.ocs)[i]   #name of chemical i
+    coxph.mets <- coxph(Surv(Days_Diff_1st_OCS_aft_plasma_collect_date,event.all) ~ first.ocs[,i] + 
+                           Age_at_plasma_collection_date + 
+                           Gender_Male +  Race_White +
+                           Bronchiectasis_Existence_Yes +
+                           Chronic_Bronchitis_Existence_Yes +
+                           BMI_median_closest_measure_date_to_collect_date +
+                           Closest_plasma_collect_date_former_smoker +
+                           Closest_plasma_collect_date_never_smoker + 
+                           OCS_bef_plasma_collect_date +
+                           ICS_Dose_Classification_5Y_bef_Median_1_5 +
+                           ICS_Dose_Classification_5Y_bef_Median_2 +
+                           ICS_total_number_of_prescriptions_5Y_bef_plasma_log +
+                           ICS_total_number_of_prescriptions_5Y_bef_plasma_log * first.ocs[,i],
+                           data=first.ocs) # fit model
+   
+    model.coefs <- summary(coxph.mets)$coefficients # get model coefficient and p-value
+    confi.int <- summary(coxph.mets)$conf.int # get confidence interval of model
+    
+   if (nrow(model.coefs) > 0) {
+          p.met <- model.coefs[1,5]
+          est.met <- model.coefs[1,1] 
+          exp.est.met <- model.coefs[1,2]
+        
+          p.age <- model.coefs[2,5]
+          est.age <- model.coefs[2,1]
+          exp.est.age <- model.coefs[2,2]
+        
+          p.male <- model.coefs[3,5]
+          est.male <- model.coefs[3,1]
+          exp.est.male <- model.coefs[3,2]
+       
+          p.white <- model.coefs[4,5]
+          est.white <- model.coefs[4,1]
+          exp.est.white <- model.coefs[4,2]
+        
+          p.bron.yes <- model.coefs[5,5]
+          est.bron.yes <- model.coefs[5,1]
+          exp.est.bron.yes <- model.coefs[5,2]
+        
+          p.chr.bron.yes <- model.coefs[6,5]
+          est.chr.bron.yes <- model.coefs[6,1]
+          exp.est.chr.bron.yes <- model.coefs[6,2]
+        
+          p.bmi <- model.coefs[7,5]
+          est.bmi <- model.coefs[7,1]
+          exp.est.bmi <- model.coefs[7,2]
+       
+          p.for.smoker <- model.coefs[8,5]
+          est.for.smoker <- model.coefs[8,1]
+          exp.est.for.smoker <- model.coefs[8,2]
+        
+          p.never.smoker <- model.coefs[9,5]
+          est.never.smoker <- model.coefs[9,1]
+          exp.est.never.smoker <- model.coefs[9,2]
+
+          p.ocs.bef <- model.coefs[10,5]
+          est.ocs.bef <- model.coefs[10,1]
+          exp.est.ocs.bef <- model.coefs[10,2]
+        
+          p.ics.dose.1.5 <- model.coefs[11,5]
+          est.ics.dose.1.5 <- model.coefs[11,1]
+          exp.est.ics.dose.1.5 <- model.coefs[11,2]
+        
+          p.ics.dose.2 <- model.coefs[12,5]
+          est.ics.dose.2 <- model.coefs[12,1]
+          exp.est.ics.dose.2 <- model.coefs[12,2]
+       
+          p.ics.5y <- model.coefs[13,5]
+          est.ics.5y <- model.coefs[13,1]
+          exp.est.ics.5y <- model.coefs[13,2]
+
+          p.ics.5y.met <- model.coefs[14,5]
+          est.ics.5y.met <- model.coefs[14,1]
+          exp.est.ics.5y.met <- model.coefs[14,2]
+
+          lower.95.met <- confi.int[1,3] # get lower confidence interval for metabolite 
+          upper.95.met <- confi.int[1,4] # get upper confidence interval for metabolite
+          
+          lower.95.ics.5y <- confi.int[13,3] # get lower confidence interval for ICS use
+          upper.95.ics.5y <- confi.int[13,4] # get upper confidence interval for ICS use
+          
+          lower.95.ics.5y.met <- confi.int[14,3] # get lower confidence interval for interaction
+          upper.95.ics.5y.met <- confi.int[14,4] # get upper confidence interval for interaction
+        
+      result.array[nrow(result.array) + 1,] <- c(i,chem.name, 
+                                   p.met, est.met, exp.est.met, 
+                                   p.age, est.age, exp.est.age, 
+                                   p.male, est.male, exp.est.male, 
+                                   p.white, est.white, exp.est.white, 
+                                   p.bron.yes, est.bron.yes, exp.est.bron.yes, 
+                                   p.chr.bron.yes, est.chr.bron.yes, exp.est.chr.bron.yes,
+                                   p.bmi, est.bmi, exp.est.bmi,
+                                   p.for.smoker, est.for.smoker, exp.est.for.smoker, 
+                                   p.never.smoker, est.never.smoker, exp.est.never.smoker,
+                                   p.ocs.bef, est.ocs.bef, exp.est.ocs.bef,
+                                   p.ics.dose.1.5, est.ics.dose.1.5, exp.est.ics.dose.1.5,
+                                   p.ics.dose.2, est.ics.dose.2, exp.est.ics.dose.2,
+                                   p.ics.5y, est.ics.5y, exp.est.ics.5y,
+                                   p.ics.5y.met, est.ics.5y.met, exp.est.ics.5y.met,
+                                   lower.95.met,upper.95.met,
+                                   lower.95.ics.5y,upper.95.ics.5y,
+                                   lower.95.ics.5y.met,upper.95.ics.5y.met)
+    } else {
+      result.array[nrow(result.array) + 1,] <- c(i,chem.name,
+                                                   NA,NA,NA, 
+                                                   NA,NA,NA,
+                                                   NA,NA,NA, 
+                                                   NA,NA,NA, 
+                                                   NA,NA,NA, 
+                                                   NA,NA,NA, 
+                                                   NA,NA,NA,
+                                                   NA,NA,NA,
+                                                   NA,NA,NA,
+                                                   NA,NA,NA,
+                                                   NA,NA,NA,
+                                                   NA,NA,NA,
+                                                   NA,NA,NA,
+                                                   NA,NA,NA,
+                                                   NA,NA,NA,
+                                                   NA,NA,NA,NA)
+    }
+  }
+```
+```{r}
+# change character value (p,est,exp.est) to numeric
+result.array.cols <- c('p.met', 'est.met', 'exp.est.met', 
+                       'p.age', 'est.age', 'exp.est.age', 
+                       'p.male', 'est.male', 'exp.est.male',
+                       'p.white', 'est.white', 'exp.est.white',
+                       'p.bron.yes', 'est.bron.yes', 'exp.est.bron.yes', 
+                       'p.chr.bron.yes', 'est.chr.bron.yes', 'exp.est.chr.bron.yes',
+                       'p.bmi', 'est.bmi', 'exp.est.bmi', 
+                       'p.for.smoker', 'est.for.smoker', 'exp.est.for.smoker',
+                       'p.never.smoker', 'est.never.smoker', 'exp.est.never.smoker', 
+                       'p.ocs.bef', 'est.ocs.bef', 'exp.est.ocs.bef',
+                       'p.ics.dose.1.5', 'est.ics.dose.1.5', 'exp.est.ics.dose.1.5',
+                       'p.ics.dose.2', 'est.ics.dose.2', 'exp.est.ics.dose.2',
+                       'p.ics.5y', 'est.ics.5y', 'exp.est.ics.5y',
+                       'p.ics.5y.met', 'est.ics.5y.met', 'exp.est.ics.5y.met',      
+                       'lower.95.met','upper.95.met',
+                       'lower.95.ics.5y','upper.95.ics.5y',
+                       'lower.95.ics.5y.met','upper.95.ics.5y.met')
+
+for (col in result.array.cols){
+    result.array[[col]] <- as.numeric(result.array[[col]])
+}
+```
+
+```{r}
+# filter unadjusted p value
+result.array.p.cols <- c('p.met', 'p.age', 'p.male', 'p.white', 'p.bron.yes', 
+                         'p.chr.bron.yes', 'p.bmi', 'p.for.smoker', 'p.never.smoker', 
+                         'p.ocs.bef', 'p.ics.dose.1.5', 'p.ics.dose.2', 'p.ics.5y', 
+                         'p.ics.5y.met')
+
+for (col in result.array.p.cols){
+    print(dim(result.array %>% filter(result.array[[col]] < 0.05)))
+}
+```
+
+```{r}
+# add FDR adjusted p value
+result.array.p.cols <- c('p.met','p.age', 'p.ics.5y.met','p.ocs.bef')
+
+for (col in result.array.p.cols) {
+  column.name <- paste0(col, ".adj")
+  result.array[[column.name]] <- p.adjust(result.array[[col]], method = 'fdr')
+}
+```
+
+```{r}
+# filter adjusted p value
+result.array.p.adj.cols <- c('p.met.adj','p.age.adj', 'p.ics.5y.met.adj','p.ocs.bef')
+
+for (col in result.array.p.adj.cols){
+    print(dim(result.array %>% filter(result.array[[col]] < 0.05)))
+}
+# use ENT instead
+```
+
+```{r}
+# merge with metabolites
+# load metabolite info from Qingwen's QC
+regeps.dir = "..."
+mets.dir = file.path(regeps.dir, 'Metabolomics_from_Metabolon')
+mets.info <- read_excel(file.path(mets.dir,"DATA TABLES.XLSX"), sheet = "Chemical Annotation")
+# add one more column: met_id
+mets.info$met <- paste('M', mets.info$CHEM_ID, sep = '')
+mets.info <- mets.info %>% select(COMP_ID, SUPER_PATHWAY, SUB_PATHWAY, CHEMICAL_NAME,
+                                  HMDB, KEGG, PUBCHEM, SMILES, INCHIKEY, met)
+# merge to have met name
+cox.model.with.interaction <- result.array %>% left_join(mets.info, by = 'met')
+```
+
+## Export
+```{r}
+results.dir = '...'
+write.csv(cox.model.with.interaction, file.path(results.dir, 'All_Races_Cox_model_OCS_result.csv'), row.names = FALSE)
+```
+## Use ENT 85% for significance threshold
+```{r}
+# calculate PC
+which(colnames(first.ocs)== 'M35') # 1st met col
+which(colnames(first.ocs)== 'M100022127') # last met col
+first.ocs.mets <- first.ocs[29:838]
+pca_mets <- prcomp(first.ocs.mets, scale. = TRUE)
+summ <- summary(pca_mets)
+cumsum(summ$importance[2,]) # cumulative sums 
+#total of 117 principal components were needed to explain 85% of the variance in the data
+```
+```{r}
+# threshold p value: 
+0.05/117
+result.array.p.cols <- c('p.met','p.age','p.male',
+                        'p.bron.yes','p.chr.bron.yes','p.bmi', 'p.ocs.bef',
+                        'p.for.smoker','p.never.smoker', 'p.ics.dose.1.5',
+                        'p.ics.dose.2','p.ics.5y','p.ics.5y.met')
+
+for (col in result.array.p.cols){
+    print(dim(result.array %>% filter(result.array[[col]] < 0.05/117)))
+}
+```
+
+```{r}
+# significant interaction between ICS prescription and metabolite
+cox.model.with.interaction %>% filter(cox.model.with.interaction$p.ics.5y.met < 0.05/117) %>%
+                select(CHEMICAL_NAME,SUPER_PATHWAY,SUB_PATHWAY, p.ics.5y.met, 
+                       exp.est.ics.5y.met, lower.95.ics.5y.met, upper.95.ics.5y.met)
+```
+
+```{r}
+# round number
+cox.model.with.interaction$p.met.round <- round(cox.model.with.interaction$p.met, digits = 2)
+cox.model.with.interaction$exp.est.met.round <- round(cox.model.with.interaction$exp.est.met, digits = 2)
+cox.model.with.interaction$lower.95.met.round <- round(cox.model.with.interaction$lower.95.met, digits = 2)
+cox.model.with.interaction$upper.95.met.round <- round(cox.model.with.interaction$upper.95.met, digits = 2)
+```
+
+```{r}
+# two significant mets
+sig.mets <- cox.model.with.interaction %>% filter(p.met < 0.05/117) %>% 
+select(met, SUPER_PATHWAY, SUB_PATHWAY, CHEMICAL_NAME, p.met, exp.est.met, 
+       lower.95.met, upper.95.met) %>% arrange(p.met)
+sig.mets
+```
+
+```{r}
+# Nominally significant met
+nominal.sig.mets <- cox.model.with.interaction %>% filter(p.met < 0.05) %>% 
+                        select(met, SUPER_PATHWAY, SUB_PATHWAY, CHEMICAL_NAME, p.met, exp.est.met, 
+                               lower.95.met, upper.95.met) %>% arrange(p.met)
+                        dim(nominal.sig.mets)
+                        nominal.sig.mets
+# number of metabolites have HR < 1
+dim(nominal.sig.mets %>% filter(exp.est.met < 1) %>% arrange(SUB_PATHWAY))
+# number of metabolites have HR > 1
+dim(nominal.sig.mets %>% filter(exp.est.met > 1) %>% arrange(SUB_PATHWAY))
+```
+
+```{r}
+#Table 2: Top 10
+top.10 <- nominal.sig.mets[c(1:10),] %>% select(met, CHEMICAL_NAME, SUPER_PATHWAY, SUB_PATHWAY, 
+                                        exp.est.met, lower.95.met, upper.95.met, p.met)
+top.10 <- top.10 %>% mutate_at(vars(exp.est.met, lower.95.met, upper.95.met), list(~ round(., 2)))
+top.10$HR_95_CI <- str_c(top.10$exp.est.met, ' (', top.10$lower.95.met, ',', top.10$upper.95.met, ')')
+top.10.out <- top.10%>% select(CHEMICAL_NAME, SUPER_PATHWAY, SUB_PATHWAY, p.met, HR_95_CI) %>% arrange(p.met)
+top.10.out
+```
+## Significant interaction between ICS prescription and metabolite
+```{r}
+sig.inter <- cox.model.with.interaction %>% filter(p.ics.5y.met < 0.05) %>% 
+            select(met, SUPER_PATHWAY, SUB_PATHWAY, CHEMICAL_NAME, p.ics.5y.met, exp.est.ics.5y.met, 
+                   lower.95.ics.5y.met, upper.95.ics.5y.met) %>% 
+arrange(p.ics.5y.met)
+dim(sig.inter)
+```
+```{r}
+# check 9 significant mets have significant interacted with ICS prescription?
+filter(sig.inter, CHEMICAL_NAME %in% top.10$CHEMICAL_NAME)
+```
+
+## Hazard plot
+```{r}
+# top 10 significant associated with the risk and 9 have sig interaction
+sig.mets.in.inter <- filter(sig.inter, CHEMICAL_NAME %in% top.10$CHEMICAL_NAME) 
+sig.mets.in.inter$p.val.sig.ics.met <- c("***", "**", "*", "")[findInterval(sig.mets.in.inter$p.ics.5y.met, c(0.001, 0.01, 0.05)) + 1]
+# merge to have HZ of sig mets
+sig.mets.1 <- sig.mets.in.inter[,-c(1:3)] %>% left_join(top.10[,-c(9)], 
+                                                        by = 'CHEMICAL_NAME')
+# interaction of ics use and met
+ics.met.hazard <- sig.mets.1 %>%
+            mutate(CHEMICAL_NAME = fct_reorder(CHEMICAL_NAME, desc(exp.est.met))) %>% 
+            ggplot(aes(x = exp.est.ics.5y.met, y = CHEMICAL_NAME, group = SUB_PATHWAY, color = SUB_PATHWAY)) + 
+                geom_errorbarh(aes(xmax = upper.95.ics.5y.met, xmin = lower.95.ics.5y.met), 
+                               size = 1, height = .5) +
+                geom_point(size = 2, color = 'black') +
+                geom_vline(aes(xintercept = 1), size = .5, linetype = 'dashed') +
+                geom_text(aes(label = p.val.sig.ics.met, x = upper.95.ics.5y.met), hjust = -0.7, vjust=0.8) +
+                scale_x_continuous(limits = c(0, 2)) +
+                theme_bw()+
+                theme(panel.grid.minor = element_blank()) +
+                ylab('') +
+                xlab('\nHazard Ratio of ICS prescription-Metabolites') +
+                theme(axis.text=element_text(size=12,face='bold'),
+                      axis.title=element_text(size=12,face='bold')) 
+                        
+ggsave('All_races_hazard_ratio_interaction_ICS_prescr_metabolites.tiff', path = results.dir, 
+       width = 14, height = 7, dpi=700)
+```
+
+```{r}
+# Hazard ratio plot of metabolite effect
+sig.mets.1$p.val.sig.mets <- c("***", "**", "*", "")[findInterval(sig.mets.1$p.met, c(0.001, 0.01, 0.05)) + 1]
+met.hazard <- sig.mets.1 %>%
+            mutate(CHEMICAL_NAME = fct_reorder(CHEMICAL_NAME, desc(exp.est.met))) %>% 
+            ggplot(aes(x = exp.est.met, y = CHEMICAL_NAME,group = SUB_PATHWAY, 
+                       color = SUB_PATHWAY)) + 
+                geom_errorbarh(aes(xmax = upper.95.met, xmin = lower.95.met), 
+                               size = 1, height = .5) +
+                geom_point(size = 1, color = "black") +
+                geom_vline(aes(xintercept = 1), size = .5, linetype = "dashed") +
+                scale_x_continuous(limits = c(0, 4.0)) +
+                geom_text(aes(label = p.val.sig.mets, x = upper.95.met), hjust = -1, vjust=0.8) +
+                theme_bw()+
+                theme(panel.grid.minor = element_blank()) +
+                theme(axis.text =element_text(size=12,face='bold'),
+                      axis.title=element_text(size=12,face="bold"),
+                      panel.spacing = unit(-10, "lines"),
+                      legend.text = element_text(size = 7)) + 
+                ylab("") +
+                xlab("\nHazard Ratio of Metabolites")
+
+ggsave("All_races_hazard_ratio_metabolites.tiff", path = results.dir, 
+       width = 14, height = 7, dpi=700)
+```
